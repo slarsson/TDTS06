@@ -1,63 +1,41 @@
-
-#import socket
-#import sys
-
-# ## SERVER
-# HOST = '127.0.0.1'
-# PORT = 1337
-
-# s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# s.bind((HOST, PORT))
-# s.listen()
-# conn, addr = s.accept()
-
-# proxy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-# proxy.connect(('slarsson.me', 80))
-
-# while True:
-#     data = conn.recv(1024)
-#     print(data)
-#     if not data:
-#         print('not data wtf?', data)
-#         break
-
-#     proxy.sendall(b'GET /index.html HTTP/1.1 \r\n')
-#     proxy.sendall(b'Host: slarsson.me \r\n')
-#     proxy.sendall(b'\r\n')
-#     proxy.sendall(b'hejsan svejsan..')
-#     proxy.sendall(b'\r\n')
-    
-#     while True:
-#         data = proxy.recv(4096)
-#         conn.sendall(data)
-#     #print(sys.getsizeof(data), data)
-
-# s.close() 
-
+ 
 import socket
 import threading
 import urllib.parse
 
+import select
+
 HOST = '127.0.0.1'
 PORT = 1337
 
-VALIDDATA = ['text/plain', 'text/html']
+VALIDDATA = ['text/plain', 'text/html', 'text/plain; charset=UTF-8']
 
 
 def parse(input):
-    test = input.split('\n')
+    headers, body = input.split('\r\n\r\n')
 
-    ## Split header from body
+    headers = headers.split('\r\n')
 
+    print(headers)
 
-    ## Check headers if validdata
+    test = {}
+    for h in headers[1:]:
+        x = h.split(':', 1)
+        print(x)
+        
+        test[x[0].lower()] = x[1].strip()
     
+    print(test['content-length'], len(body))
+    print(test['content-type'])
 
-    # rows = input.split('\n')
-    # for item in rows[1:]:
-    #     print(item)
-    
-
+    ## Edit 
+    if test['content-type'] in VALIDDATA:
+        print('EDIT')
+        input = input.replace('Stockholm', 'jocke')
+        print(input)
+        return input
+    else:
+        return input
 
 
 def check_input(input):
@@ -73,64 +51,78 @@ def check_input(input):
     #Parse host
     try:
         host = urllib.parse.urlparse(items[1])
-        return host.hostname, host.port
+        return (host.hostname, host.port)
     except Exception as e:
         print(e, host, items)
     return False
     
 
-def handler(conn, addr):
-    while True:
-        payload = conn.recv(8192) 
-        if not payload:
-            break
-        
-        text = payload.decode('latin1') # https://stackoverflow.com/a/27357138
-        headers = text.split('\n')
-        #print('INCOMING:', headers)
-        host, port = check_input(headers[0])
-
+def handler(client_socket, addr):
+    inputs = [client_socket] 
     
+    first = True
+    while inputs:        
+        readable, _, _ = select.select(inputs, [], [])
 
-        if not host:
-            conn.send(b"HTTP/1.1 400 Bad Request\r\n")
-            conn.send(b"Content-Length: 11\r\n")
-            conn.send(b'Connection: close\r\n')
-            conn.send(b"\r\n")
-            conn.send(b"Error\r\n")
-            conn.send(b"\r\n\r\n")      
-        else:
-            outgoing = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
-            outgoing.connect((host, 80 if port is None else port))
-            #print('CONNETED TO', host)
-            outgoing.sendall(payload)
+        for connection in readable:
+            data = connection.recv(2000)
+            if not data:
+                connection.close()
+                inputs.remove(connection)
+                print('ANY OF THE CONNECTIONS CLOSED')
+                for x in inputs:
+                    x.shutdown(socket.SHUT_RDWR) ## Needed??
+                    x.close()
+                    inputs.remove(x)
+                break
             
-            
-            while True:
-                data = outgoing.recv(16384)
-                if not data:
-                    break
-                #print(data)
+            ## Handle the connection from client
+            if connection is client_socket:
+                if first:
+                    first = False
+                    text = data.decode('latin1') # https://stackoverflow.com/a/27357138
+                    headers = text.split('\n')
+                    
+                    destination = check_input(headers[0])
+                    print(destination)
+                    if not destination:
+                        client_socket.send(b"HTTP/1.1 400 Bad Request\r\n")
+                        client_socket.send(b"Content-Length: 11\r\n")
+                        client_socket.send(b'Connection: close\r\n')
+                        client_socket.send(b"\r\n")
+                        client_socket.send(b"Error\r\n")
+                        client_socket.send(b"\r\n\r\n")
+                        continue    
+
+                    ## Creates socket to server
+                    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)    
+                    server_socket.connect((destination[0], 80 if destination[1] is None else destination[1]))
+                    
+                    inputs.append(server_socket)
+                    server_socket.sendall(data) 
+                    
+                ## If connection reused by client_socket
+                else:
+                    inputs[1].sendall(data)
+            else:
 
                 ## Check and parse the data
-                parse(data.decode('latin1'))
+                new_data = parse(data.decode('latin1'))
 
                 ## Edit data
 
+
                 ## Send data
-                conn.sendall(data)
+                client_socket.sendall(new_data.encode('latin1'))
+               
 
 
+if __name__ == '__main__':
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((HOST, PORT))
+    server.listen()
 
-            
-    
-
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind((HOST, PORT))
-s.listen()
-
-while True:
-    connection, address = s.accept()
-    new_thread = threading.Thread(target=handler, args=(connection, address))
-    new_thread.start()    
-
+    while True:
+        conn, addr = server.accept()
+        new_thread = threading.Thread(target=handler, args=(conn, addr))
+        new_thread.start()

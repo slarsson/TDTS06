@@ -24,12 +24,13 @@ def handler(client_socket, id):
 
     buffer = bytes()
     first = True
+   
     while inputs:        
         readable, writable, _ = select.select(inputs, outputs, [])
         
         # handle incoming data (recv)
         for connection in readable:
-            data = connection.recv(4096)
+            data = connection.recv(4096) ## right size??
             if not data:
                 print(f'CLOSE CONNECTION, THREAD {id}')
                 connection.close()
@@ -37,6 +38,9 @@ def handler(client_socket, id):
                 break
 
             if connection is client_socket:
+
+                # check if message starts with 'GET url HTTP/1.1' 
+                # in order to replace smiley-img
                 first_row = get_first_row(data)
                 if first_row:
                     data = replace_url(first_row[1], data)
@@ -69,6 +73,11 @@ def handler(client_socket, id):
                         outgoing_messages[inputs[1]].put(data)
                         if inputs[1] not in outputs:
                             outputs.append(inputs[1])
+                    else: 
+                        print(f'CLOSED CONNECTION, SERVER SOCKET NOT AVAILABLE')
+                        connection.close()
+                        inputs.remove(connection)
+                        break
             else:
                 # handle data from server
                 buffer += data
@@ -77,10 +86,11 @@ def handler(client_socket, id):
                     continue
 
                 # add the changed (or not changed) data from the server to client queue
-                outgoing_messages[client_socket].put(new_data)
+                outgoing_messages[client_socket].put(new_data)  
                 if client_socket not in outputs:
                     outputs.append(client_socket)
-                
+                #client_socket.sendall(new_data)
+
                 # clear buffer
                 buffer = bytes()
 
@@ -97,7 +107,7 @@ def handler(client_socket, id):
                     pass
     print(f'KILL THREAD {id} 🧵')
 
-# set-up socket
+# set-up
 if __name__ == '__main__':    
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))

@@ -30,7 +30,7 @@ def handler(client_socket, id):
         
         # handle incoming data (recv)
         for connection in readable:
-            data = connection.recv(4096) ## right size??
+            data = connection.recv(4096) 
             if not data:
                 print(f'CLOSE CONNECTION, THREAD {id}')
                 connection.close()
@@ -51,6 +51,7 @@ def handler(client_socket, id):
 
                     # check if valid request
                     destination = check_input(first_row)
+                    print(first_row)
                     if not destination:
                         connection.sendall(error_response())
                         continue
@@ -74,7 +75,6 @@ def handler(client_socket, id):
                         if inputs[1] not in outputs:
                             outputs.append(inputs[1])
                     else: 
-                        print(f'CLOSED CONNECTION, SERVER SOCKET NOT AVAILABLE')
                         connection.close()
                         inputs.remove(connection)
                         break
@@ -107,7 +107,7 @@ def handler(client_socket, id):
                     pass
     print(f'KILL THREAD {id} 🧵')
 
-# set-up
+# main
 if __name__ == '__main__':    
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.bind((HOST, PORT))

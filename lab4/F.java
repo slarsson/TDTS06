@@ -14,18 +14,18 @@ class F {
     }
 
     public static String format(Object x, int len){
-	return format(String.valueOf(x), len);
+	    return format(String.valueOf(x), len);
     }
 
     public static String format(long x, int len){
-	return format(String.valueOf(x), len);
+	    return format(String.valueOf(x), len);
     }
 
     public static String format(double x, int len){
-	return format(String.valueOf(x), len);
+	    return format(String.valueOf(x), len);
     }
 
     public static String format(char x, int len){
-	return format(String.valueOf(x), len);
+	    return format(String.valueOf(x), len);
     }
 }

@@ -17,7 +17,7 @@ public class RouterSimulator {
   public static final int NUM_NODES = 4;
   public static final int INFINITY = 999;
 
-  public static final boolean LINKCHANGES = false;
+  public static final boolean LINKCHANGES = true;
 
   public int TRACE = 1;             /* for debugging */
 
@@ -98,7 +98,7 @@ should not have to, and you defeinitely should not have to modify
     
     nodes = new RouterNode[NUM_NODES];
     for(int i=0;i<NUM_NODES;i++)
-      nodes[i] = new RouterNode(i,this,connectcosts[i]);
+      nodes[i] = new RouterNode(i, this,connectcosts[i]);
 
     /* initialize future link changes */
     if (LINKCHANGES)   {
@@ -129,52 +129,43 @@ should not have to, and you defeinitely should not have to modify
     Event eventptr;
    
     while (true) {
-     
       eventptr = evlist;            /* get next event to simulate */
       if (eventptr==null)
-	break;
+	      break;
+      
       evlist = evlist.next;        /* remove this event from event list */
       if (evlist!=null)
-           evlist.prev=null;
+        evlist.prev=null;
+      
       if (TRACE>1) {
-	myGUI.println("MAIN: rcv event, t="+
-			   eventptr.evtime+ " at "+
-			   eventptr.eventity);
-          if (eventptr.evtype == FROM_LAYER2 ) {
-	    myGUI.print(" src:"+eventptr.rtpktptr.sourceid);
-            myGUI.print(", dest:"+eventptr.rtpktptr.destid);
-            myGUI.println(", contents: "+ 
-              eventptr.rtpktptr.mincost[0]+" "+ eventptr.rtpktptr.mincost[1]+
-			       " "+
-			       eventptr.rtpktptr.mincost[2]+" "+ 
-			       eventptr.rtpktptr.mincost[3]);
-            }
-          }
+	      myGUI.println("MAIN: rcv event, t="+eventptr.evtime+ " at "+eventptr.eventity);
+        if (eventptr.evtype == FROM_LAYER2 ) {
+	        myGUI.print(" src:"+eventptr.rtpktptr.sourceid);
+          myGUI.print(", dest:"+eventptr.rtpktptr.destid);
+          myGUI.println(", contents: "+ eventptr.rtpktptr.mincost[0]+" "+ eventptr.rtpktptr.mincost[1]+" "+eventptr.rtpktptr.mincost[2]+" "+ eventptr.rtpktptr.mincost[3]);
+        }
+      }
+      
       clocktime = eventptr.evtime;    /* update time to next event time */
       if (eventptr.evtype == FROM_LAYER2 ) {
-	if(eventptr.eventity >=0 && eventptr.eventity < NUM_NODES)
-	  nodes[eventptr.eventity].recvUpdate(eventptr.rtpktptr);
-	else { myGUI.println("Panic: unknown event entity\n"); System.exit(0); }
+	      if(eventptr.eventity >=0 && eventptr.eventity < NUM_NODES)
+	        nodes[eventptr.eventity].recvUpdate(eventptr.rtpktptr);
+	    else { 
+        myGUI.println("Panic: unknown event entity\n"); System.exit(0); }
+      } else if (eventptr.evtype == LINK_CHANGE ) {
+	      // change link costs here if implemented
+	      nodes[eventptr.eventity].updateLinkCost(eventptr.dest, eventptr.cost);
+	      nodes[eventptr.dest].updateLinkCost(eventptr.eventity, eventptr.cost);
+      } else { 
+        myGUI.println("Panic: unknown event type\n"); System.exit(0);
       }
-      else if (eventptr.evtype == LINK_CHANGE ) {
-	// change link costs here if implemented
-	nodes[eventptr.eventity].updateLinkCost(eventptr.dest,
-						eventptr.cost);
-	nodes[eventptr.dest].updateLinkCost(eventptr.eventity,
-					    eventptr.cost);
-      }
-      else
-	{ myGUI.println("Panic: unknown event type\n"); System.exit(0); }
       
       if(TRACE > 2)
-	for(int i=0;i<NUM_NODES;i++)
-	  nodes[i].printDistanceTable();
-
+	      for(int i=0;i<NUM_NODES;i++)
+	        nodes[i].printDistanceTable();
     }
-    
-    
-    myGUI.println("\nSimulator terminated at t="+clocktime+
-		       ", no packets in medium\n");
+
+    myGUI.println("\nSimulator terminated at t="+clocktime+", no packets in medium\n");
   }
 
   public double getClocktime() {

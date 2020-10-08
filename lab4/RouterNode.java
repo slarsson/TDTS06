@@ -7,7 +7,6 @@ public class RouterNode {
 	private GuiTextArea myGUI;
 	private RouterSimulator sim;
 
-
 	// cost of link, myID -> x
 	private int[] costs = new int[RouterSimulator.NUM_NODES];
 	
@@ -19,10 +18,8 @@ public class RouterNode {
 
 	private boolean poision = true;
 
-	// ? -> i
-	private int[] prevVertex = new int[RouterSimulator.NUM_NODES];
-
-
+	// first hop, where the router should go first
+	private int[] route = new int[RouterSimulator.NUM_NODES];
 
 	//--------------------------------------------------
 	public RouterNode(int ID, RouterSimulator sim, int[] costs) {
@@ -40,11 +37,9 @@ public class RouterNode {
 					this.table[i][j] = RouterSimulator.INFINITY;
 				}
 			}
-
-			this.prevVertex[i] = (costs[i] == RouterSimulator.INFINITY) ? -1 : i; 
+			this.route[i] = (costs[i] == RouterSimulator.INFINITY) ? -1 : i; 
 			this.neighbors[i] = !(costs[i] == RouterSimulator.INFINITY);
 		}
-
 		this.broadcast();
 	}
 
@@ -56,14 +51,14 @@ public class RouterNode {
 				System.arraycopy(this.table[myID], 0, arr, 0, RouterSimulator.NUM_NODES);
 
 				if (this.poision) {
-					for (int j = 0; j < RouterSimulator.NUM_NODES; j++) {
-						if (this.prevVertex[j] == i) {
+					for (int j = 0; j < RouterSimulator.NUM_NODES; j++) {						
+						if (this.route[j] == i && i != j) {
 							System.out.println("poision");
+
 							arr[j] = RouterSimulator.INFINITY;
 						}
 					}
 				}
-
 				System.out.println("from: " + myID + ", to: " + i + ", arr: " + Arrays.toString(arr));
 				this.sendUpdate(new RouterPacket(myID, i, arr));
 			}
@@ -72,12 +67,52 @@ public class RouterNode {
 
 	//--------------------------------------------------
 	public void recvUpdate(RouterPacket pkt) {
-		if (Arrays.equals(this.table[pkt.sourceid], pkt.mincost)) {
-			return;
-		}
+		if (Arrays.equals(this.table[pkt.sourceid], pkt.mincost)) return;
 		System.arraycopy(pkt.mincost, 0, this.table[pkt.sourceid], 0, RouterSimulator.NUM_NODES);
-		this.bellman();
+		
+		boolean update = false;
+		for (int i = 0; i < RouterSimulator.NUM_NODES; i++) {
+			if (i == this.myID || this.route[i] == -1) continue;
+			
+			// this.table[this.route[i]][i] => first hop | ... | i
+			// this.table[this.myID][this.route[i]] => myID -> first hop
+			// myID -> first hop -> i 
+			int newcost = this.table[this.route[i]][i] + this.table[this.myID][this.route[i]];
+			if (this.table[this.myID][i] != newcost) {
+				this.table[this.myID][i] = newcost;
+				update = true;
+			}
+			
+			// if current route is more expensive then origin cost, reset!
+			if (this.table[this.myID][i] > this.costs[i]) {
+				this.table[this.myID][i] = this.costs[i];
+				this.route[i] = i;
+				update = true;
+			}
+
+			// Bellman-Ford
+			for (int j = 0; j < RouterSimulator.NUM_NODES; j++) {
+				if (j == this.myID) continue;
+	
+				// cost: (myID -> i) + (i -> j)
+				int cost = this.table[this.myID][i] + this.table[i][j];
+				
+				// check if route through i to j is cheaper then direct route to j
+				if (this.table[this.myID][j] > cost) {
+					this.table[this.myID][j] = cost;
+					
+					// update where the router should go first
+					this.route[j] = this.route[i];
+					update = true;
+				}
+			}
+		}
+
+		if (update) {
+			this.broadcast();
+		}
 		System.out.println(this.myID + ": " + Arrays.toString(this.table[this.myID]) + " => " + Arrays.deepToString(this.table));
+		System.out.println(this.myID + ": " + Arrays.toString(this.route));
 	}
 
 	//--------------------------------------------------
@@ -130,79 +165,31 @@ public class RouterNode {
 	}
 
 	//--------------------------------------------------
-	private void bellman() {
-		boolean update = false;
-		for (int i = 0; i < RouterSimulator.NUM_NODES; i++) {
-			if (i == this.myID) continue;
-			
-			// (innan i -> i) + (myid -> innan i)
-			// total kostnad: myID -> i
-			int newcost = this.table[this.prevVertex[i]][i] + this.table[this.myID][this.prevVertex[i]];
-
-			// kostnaden har ändrats
-			if (this.table[this.myID][i] != newcost) {
-				this.table[this.myID][i] = newcost;
-				update = true;
-			}
-			
-			// om (myID -> ? -> i) dyrare än (myID -> i), fel väg.
-			if (this.table[this.myID][i] > this.costs[i]) {
-				this.table[this.myID][i] = this.costs[i];
-				this.prevVertex[i] = i;
-				update = true;
-			}
-
-			// cost = myID -> i + (i -> j)
-			for (int j = 0; j < RouterSimulator.NUM_NODES; j++) {
-				if (j == this.myID) continue;
-				
-				int cost = this.table[this.myID][i] + this.table[i][j];
-				
-				// om billigare att gå till j via i, myID -> i -> j
-				if (this.table[this.myID][j] > cost) {
-					this.table[this.myID][j] = cost;
-					
-					// before: ? -> j
-					// after: innan i -> j
-					this.prevVertex[j] = this.prevVertex[i];
-					update = true;
-				}
-			}
-
-		}
-
-		if (update) {
-			this.broadcast();
-		}
-	}
 
 	public void updateLinkCost(int dest, int newcost) {
 		this.costs[dest] = newcost;
 		
-		// om i -> i, uppdatera kostnaden
-		if (this.prevVertex[dest] == dest) {
+		// check if dest -> dest, not routing through anything else
+		if (this.route[dest] == dest) {
 			this.table[this.myID][dest] = newcost;
-		}
-		
-		// kolla om nya kostnaden gör det billigare
-		// om (myID -> ? -> i) dyrare än (myID -> i), byt!
-		if (this.table[this.myID][dest] > this.costs[dest]) {
+		} else if (this.table[this.myID][dest] > this.costs[dest]) {
+			// if current route is more expensive then origin cost, reset!
 			this.table[this.myID][dest] = this.costs[dest];
-			this.prevVertex[dest] = dest;
+			this.route[dest] = dest;
 		}
 
-		// bellman
-		// cost = myID -> i + (i -> j)
+		// Bellman-Ford - neighbours
 		for (int j = 0; j < RouterSimulator.NUM_NODES; j++) {
 			if (j == this.myID) continue;			
 			int cost = this.table[this.myID][dest] + this.table[dest][j];
 			if (this.table[this.myID][j] > cost) {
 				this.table[this.myID][j] = cost;
-				this.prevVertex[j] = this.prevVertex[dest];
+				this.route[j] = this.route[dest];
 			}
 		}
 
 		this.broadcast();
 		System.out.println("*" + this.myID + ": " + Arrays.toString(this.table[this.myID]) + " => " + Arrays.deepToString(this.table));
+		System.out.println(this.myID + ": " + Arrays.toString(this.route));
 	}
 }

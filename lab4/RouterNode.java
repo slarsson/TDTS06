@@ -74,9 +74,6 @@ public class RouterNode {
 		for (int i = 0; i < RouterSimulator.NUM_NODES; i++) {
 			if (i == this.myID || this.route[i] == -1) continue;
 			
-			// this.table[this.route[i]][i] => first hop | ... | i
-			// this.table[this.myID][this.route[i]] => myID -> first hop
-			// myID -> first hop -> i 
 			int newcost = this.table[this.route[i]][i] + this.table[this.myID][this.route[i]];
 			if (this.table[this.myID][i] != newcost) {
 				this.table[this.myID][i] = newcost;
@@ -165,7 +162,6 @@ public class RouterNode {
 	}
 
 	//--------------------------------------------------
-
 	public void updateLinkCost(int dest, int newcost) {
 		this.costs[dest] = newcost;
 		

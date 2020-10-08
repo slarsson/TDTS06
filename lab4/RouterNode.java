@@ -17,10 +17,10 @@ public class RouterNode {
 	// the forwarding table
 	private int[][] table = new int[RouterSimulator.NUM_NODES][RouterSimulator.NUM_NODES];
 
-	// first fkn hop
-	private int[] firstHop = new int[RouterSimulator.NUM_NODES];
+	private boolean poision = true;
 
-	private boolean poisoned = true;
+	// ? -> i
+	private int[] prevVertex = new int[RouterSimulator.NUM_NODES];
 
 
 
@@ -41,14 +41,9 @@ public class RouterNode {
 				}
 			}
 
-			this.firstHop[i] = (costs[i] == RouterSimulator.INFINITY) ? RouterSimulator.INFINITY : i; 
+			this.prevVertex[i] = (costs[i] == RouterSimulator.INFINITY) ? -1 : i; 
 			this.neighbors[i] = !(costs[i] == RouterSimulator.INFINITY);
 		}
-
-		// System.out.println(this.myID);
-		// System.out.println(Arrays.toString(this.neighbors));
-		
-		System.out.println("HOP:" + Arrays.toString(this.firstHop));
 
 		this.broadcast();
 	}
@@ -56,38 +51,37 @@ public class RouterNode {
 	private void broadcast() {
 		for (int i = 0; i < RouterSimulator.NUM_NODES; i++) {
 			if (i != this.myID && this.neighbors[i]) {
-				System.out.println("from: " + myID + ", to: " + i + ", arr: " + Arrays.toString(this.table[myID]));
-				this.sendUpdate(new RouterPacket(myID, i, this.table[myID]));
+			
+				int[] arr = new int[RouterSimulator.NUM_NODES];
+				System.arraycopy(this.table[myID], 0, arr, 0, RouterSimulator.NUM_NODES);
+
+				if (this.poision) {
+					for (int j = 0; j < RouterSimulator.NUM_NODES; j++) {
+						if (this.prevVertex[j] == i) {
+							System.out.println("poision");
+							arr[j] = RouterSimulator.INFINITY;
+						}
+					}
+				}
+
+				System.out.println("from: " + myID + ", to: " + i + ", arr: " + Arrays.toString(arr));
+				this.sendUpdate(new RouterPacket(myID, i, arr));
 			}
 		}
 	}
 
 	//--------------------------------------------------
 	public void recvUpdate(RouterPacket pkt) {
-		// nothing have changed ..
 		if (Arrays.equals(this.table[pkt.sourceid], pkt.mincost)) {
 			return;
 		}
-		
-		// copy the incoming packet to 'table'
 		System.arraycopy(pkt.mincost, 0, this.table[pkt.sourceid], 0, RouterSimulator.NUM_NODES);
-
-		// check if 'table' has changed
-		if (this.bellman()) {
-			this.broadcast();
-		}
+		this.bellman();
+		System.out.println(this.myID + ": " + Arrays.toString(this.table[this.myID]) + " => " + Arrays.deepToString(this.table));
 	}
 
 	//--------------------------------------------------
 	private void sendUpdate(RouterPacket pkt) {
-		if (this.poisoned) {
-			for (int i = 0; i < RouterSimulator.NUM_NODES; i++) {
-				if (this.firstHop[i] == pkt.destid && i != pkt.destid) {
-					pkt.mincost[i] = RouterSimulator.INFINITY;
-				}
-			}
-		}
-		
 		sim.toLayer2(pkt);
 	}
 
@@ -103,7 +97,6 @@ public class RouterNode {
 		for(int i = 0; i < RouterSimulator.NUM_NODES; i++) {
 			dst += F.format(i, 10);
 		}
-
 		myGUI.println(dst);
 		myGUI.println(line);
 
@@ -116,7 +109,6 @@ public class RouterNode {
 				myGUI.println(temp);
 			}
 		}
-
 		myGUI.println("\n");
 		myGUI.println("Our distance vector and rotes: \n");
 
@@ -130,7 +122,6 @@ public class RouterNode {
 				route += F.format(i, 10);
 			}
 		}
-
 		myGUI.println(dst);
 		myGUI.println(line);
 		myGUI.println(temp);
@@ -139,46 +130,79 @@ public class RouterNode {
 	}
 
 	//--------------------------------------------------
-
-	private boolean bellman() {
-		boolean state = false;
-
+	private void bellman() {
+		boolean update = false;
 		for (int i = 0; i < RouterSimulator.NUM_NODES; i++) {
 			if (i == this.myID) continue;
+			
+			// (innan i -> i) + (myid -> innan i)
+			// total kostnad: myID -> i
+			int newcost = this.table[this.prevVertex[i]][i] + this.table[this.myID][this.prevVertex[i]];
+
+			// kostnaden har ändrats
+			if (this.table[this.myID][i] != newcost) {
+				this.table[this.myID][i] = newcost;
+				update = true;
+			}
+			
+			// om (myID -> ? -> i) dyrare än (myID -> i), fel väg.
+			if (this.table[this.myID][i] > this.costs[i]) {
+				this.table[this.myID][i] = this.costs[i];
+				this.prevVertex[i] = i;
+				update = true;
+			}
+
+			// cost = myID -> i + (i -> j)
 			for (int j = 0; j < RouterSimulator.NUM_NODES; j++) {
 				if (j == this.myID) continue;
 				
-				// myID -> j -> i
-				int newcost = this.costs[j] + this.table[j][i];
+				int cost = this.table[this.myID][i] + this.table[i][j];
 				
-				// myID -> i
-				int currentcost = this.costs[i];
-				
-				if (newcost < currentcost) {
-					this.table[myID][i] = newcost;
-					this.firstHop[i] = j;
-					state = true;
+				// om billigare att gå till j via i, myID -> i -> j
+				if (this.table[this.myID][j] > cost) {
+					this.table[this.myID][j] = cost;
+					
+					// before: ? -> j
+					// after: innan i -> j
+					this.prevVertex[j] = this.prevVertex[i];
+					update = true;
 				}
 			}
+
 		}
 
-		return state;
-	}
-
-	public void updateLinkCost(int dest, int newcost) {
-		System.out.println("update: " + myID + " -> " + dest + " : " + this.costs[dest] + " -> " + newcost);
-		
-		// set the new cost
-		this.costs[dest] = newcost;
-		
-		// check if cost have changed 'table'
-		if (this.bellman()) {
+		if (update) {
 			this.broadcast();
 		}
 	}
-}
 
-// vad händer ens här!?!??!!?
-//https://github.com/Awolize/TDTS04-04/blob/master/RouterNode.java
-//https://github.com/jmlasnier/tdts04-labs/blob/master/Lab4/src/lab4/RouterNode.java
-//https://github.com/diblaze/TDTS04/blob/master/Lab%204/RouterNode.java
+	public void updateLinkCost(int dest, int newcost) {
+		this.costs[dest] = newcost;
+		
+		// om i -> i, uppdatera kostnaden
+		if (this.prevVertex[dest] == dest) {
+			this.table[this.myID][dest] = newcost;
+		}
+		
+		// kolla om nya kostnaden gör det billigare
+		// om (myID -> ? -> i) dyrare än (myID -> i), byt!
+		if (this.table[this.myID][dest] > this.costs[dest]) {
+			this.table[this.myID][dest] = this.costs[dest];
+			this.prevVertex[dest] = dest;
+		}
+
+		// bellman
+		// cost = myID -> i + (i -> j)
+		for (int j = 0; j < RouterSimulator.NUM_NODES; j++) {
+			if (j == this.myID) continue;			
+			int cost = this.table[this.myID][dest] + this.table[dest][j];
+			if (this.table[this.myID][j] > cost) {
+				this.table[this.myID][j] = cost;
+				this.prevVertex[j] = this.prevVertex[dest];
+			}
+		}
+
+		this.broadcast();
+		System.out.println("*" + this.myID + ": " + Arrays.toString(this.table[this.myID]) + " => " + Arrays.deepToString(this.table));
+	}
+}
